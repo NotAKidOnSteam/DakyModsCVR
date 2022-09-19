@@ -276,6 +276,7 @@ namespace ActionMenu
         private Dictionary<string, MelonPreferences_Entry> melonPrefsMap;
         private MelonPreferences_Entry<bool> flickSelection, boringBackButton, dontInstallResources,
             splitAvatarOvercrowdedMenu, quickMenuLongPress;
+        private MelonPreferences_Entry<float> offsetActionMenuX, offsetActionMenuY;
 
         // unique identifier -> function or menu
         private Dictionary<string, Action> callbackItems = new();
@@ -303,6 +304,10 @@ namespace ActionMenu
                 description: "Makes the ActionMenu appear with a short press and QuickMenu with long");
             splitAvatarOvercrowdedMenu = melonPrefs.CreateEntry("split_overcrowded_avatar_menu", false, "No crowded menus",
                 description: "Split avatar menu in multiple pages when it's too crowded");
+            offsetActionMenuX = melonPrefs.CreateEntry("offset_actionmenu_x", 0f, "Offset X",
+                description: "Offset ActionMenu on X axis");
+            offsetActionMenuY = melonPrefs.CreateEntry("offset_actionmenu_y", 0f, "Offset Y",
+                           description: "Offset ActionMenu on X axis");
 
             melonPrefsMap = new();
             foreach (var e in melonPrefs.Entries)
@@ -326,9 +331,13 @@ namespace ActionMenu
 
 
             // FIXME: this stops the avatar animator from moving too, but not ideal, cannot fly anymore or rotate head
+            //HarmonyInstance.Patch(
+            //    SymbolExtensions.GetMethodInfo(() => default(MovementSystem).Update()),
+            //    prefix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateMovementSystem))));
+
             HarmonyInstance.Patch(
-                SymbolExtensions.GetMethodInfo(() => default(MovementSystem).Update()),
-                prefix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateMovementSystem))));
+                SymbolExtensions.GetMethodInfo(() => default(CVRInputManager).Update()),
+                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInputWhileMenu))));
 
             // close action menu when main menu opens
             HarmonyInstance.Patch(
@@ -560,10 +569,20 @@ namespace ActionMenu
             else
             {
                 moveSys.disableCameraControl = show;
-                CVRInputManager.Instance.inputEnabled = !show;
-                RootLogic.Instance.ToggleMouse(show);
-                menuManager.desktopControllerRay.enabled = !show;
+                //CVRInputManager.Instance.inputEnabled = !show;
+                //RootLogic.Instance.ToggleMouse(show);
+                //menuManager.desktopControllerRay.enabled = !show;
             }
+        }
+
+        private static void OnUpdateInputWhileMenu(ref Vector2 ___lookVector, ref Vector2 ___rawLookVector)
+        {
+            if (cohtmlView?.enabled != true) return;
+
+            joystickMouse += ___rawLookVector/10;
+            ___lookVector = Vector2.zero;
+
+            
         }
 
         private static void OnUpdateInputSteamVR(InputModuleSteamVR __instance)
@@ -633,6 +652,8 @@ namespace ActionMenu
             }
         }
 
+        private static Vector2 joystickMouse = Vector2.zero;
+
         public override void OnLateUpdate()
         {
             if (menuManager == null || menuTransform == null) return;
@@ -645,15 +666,23 @@ namespace ActionMenu
             var trigger = 0f;
             if (menuManager._desktopMouseMode && !MetaPort.Instance.isUsingVr) // Desktop mode
             {
-                if (menuManager._camera == null)
-                    menuManager._camera = PlayerSetup.Instance.desktopCamera.GetComponent<Camera>();
+                //if (menuManager._camera == null)
+                //    menuManager._camera = PlayerSetup.Instance.desktopCamera.GetComponent<Camera>();
 
-                RaycastHit hitInfo;
-                if (menuCollider.Raycast(menuManager._camera.ScreenPointToRay(Input.mousePosition), out hitInfo, 1000f))
+                //direct mouse mode
+                if (!true)
                 {
-                    var coord = hitInfo.textureCoord;
-                    joystick = new Vector2(coord.x * 2 - 1, coord.y * 2 - 1);
+                    var mousePos = Input.mousePosition;
+                    mousePos.x -= Screen.width / 2;
+                    mousePos.y -= Screen.height / 2;
+                    joystick = Vector2.ClampMagnitude(new Vector2(mousePos.x, mousePos.y), 1f);
                 }
+                else //joystick mouse mode
+                { 
+                    joystickMouse = Vector2.ClampMagnitude(joystickMouse, 1f);
+                    joystick = joystickMouse;
+                }
+
                 trigger = Input.GetMouseButtonDown(0) ? 1 : 0; // do we need button up anyway?
                 UpdatePositionToDesktopAnchor();
             }
@@ -691,7 +720,7 @@ namespace ActionMenu
             if (cohtmlReadyState < 1) return;
             Transform rotationPivot = PlayerSetup.Instance._movementSystem.rotationPivot;
             menuTransform.eulerAngles = rotationPivot.eulerAngles;
-            menuTransform.position = rotationPivot.position + rotationPivot.forward * 1f;
+            menuTransform.position = rotationPivot.position + rotationPivot.forward * 1f + rotationPivot.right * offsetActionMenuX.Value + rotationPivot.up * offsetActionMenuY.Value;
         }
 
         private void UpdatePositionToVrAnchor()
@@ -1261,7 +1290,7 @@ namespace ActionMenu
         {
             if (Input.GetKeyDown(KeyCode.F3)) Reload(); // reload
 
-            if (menuTransform != null) UpdatePositionToVrAnchor();
+            if (menuTransform != null) UpdatePositionToAnchor();
         }
 
         internal class OurLib : Lib
