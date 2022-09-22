@@ -576,7 +576,7 @@ namespace ActionMenu
         private MelonPreferences_Category melonPrefs;
         private Dictionary<string, MelonPreferences_Entry> melonPrefsMap;
         private MelonPreferences_Entry<bool> flickSelection, boringBackButton, dontInstallResources,
-            splitAvatarOvercrowdedMenu, quickMenuLongPress;
+            splitAvatarOvercrowdedMenu, quickMenuLongPress, useOneHandedControls;
         private MelonPreferences_Entry<float> menuSize;
         private MelonPreferences_Entry<Vector2> menuPositionOffset;
 
@@ -604,6 +604,8 @@ namespace ActionMenu
                 description: "Don't install nor overwrite the resource files (useful for developping the Action Menu)");
             splitAvatarOvercrowdedMenu = melonPrefs.CreateEntry("split_overcrowded_avatar_menu", false, "No crowded menus",
                 description: "Split avatar menu in multiple pages when it's too crowded");
+            useOneHandedControls = melonPrefs.CreateEntry("onehanded_controls", true, "One-handed controls",
+                   description: "Use offhand to control movement when ActionMenu is open");
             menuSize = melonPrefs.CreateEntry("menu_size", 0.5f, "Resize",
                 description: "Resize the menu bigger or small as you see fit");
             menuPositionOffset = melonPrefs.CreateEntry("menu_position_offset", 0.5f * Vector2.one, "Reposition",
@@ -618,43 +620,30 @@ namespace ActionMenu
             // some like positionOffset already change on the fly, so we don't want to reload!
             foreach (var e_ in melonPrefs.Entries)
                 switch (e_) {
-                    case MelonPreferences_Entry<bool> e: // all bool prefs impact the menu deeply = need reload
-                        e.OnValueChanged += (_, _) => {
-                            BuildOurMelonPrefsMenus(); // rebuild and send it back
-                            FullReload();
-                        };
-                        break;
+                case MelonPreferences_Entry<bool> e: // all bool prefs impact the menu deeply = need reload
+                    e.OnValueChanged += (_, _) => {
+                        BuildOurMelonPrefsMenus(); // rebuild and send it back
+                        FullReload();
+                    };
+                    break;
 
-                    default:
-                        break; // nothing
-                }
+                default:
+                    break; // nothing
+            }
 
             // some need custom handling
             menuSize.OnValueChanged += (_, v) => {
                 var baseScale = MetaPort.Instance.isUsingVr ? menuBaseSizeVr : menuBaseSizeDesktop;
                 menuTransform.localScale = baseScale * v * Vector3.one;
             };
+            useOneHandedControls.OnValueChanged += (_, v) => {
+                InputManager.oneHandedControls = v;
+            };
 
-
-            // override the quickmenu button behavior, long press means action menu
+            // handle our own input
             HarmonyInstance.Patch(
-                typeof(InputModuleSteamVR).GetMethod(nameof(InputModuleSteamVR.UpdateInput), BindFlags.Public | BindFlags.Instance),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInputSteamVR))));
-            HarmonyInstance.Patch(
-                typeof(InputModuleSteamVR).GetMethod(nameof(InputModuleSteamVR.UpdateImportantInput), BindFlags.Public | BindFlags.Instance),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInputSteamVR))));
-            HarmonyInstance.Patch(
-                typeof(InputModuleMouseKeyboard).GetMethod(nameof(InputModuleMouseKeyboard.UpdateInput), BindFlags.Public | BindFlags.Instance),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInputDesktop))));
-            HarmonyInstance.Patch(
-                typeof(InputModuleMouseKeyboard).GetMethod(nameof(InputModuleMouseKeyboard.UpdateImportantInput), BindFlags.Public | BindFlags.Instance),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInputDesktop))));
-
-            // immobilize when the action menu is open
-            // FIXME: this stops the avatar animator from moving too, but not ideal, cannot fly anymore or rotate head
-            HarmonyInstance.Patch(
-                SymbolExtensions.GetMethodInfo(() => default(MovementSystem).Update()),
-                prefix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateMovementSystem))));
+                SymbolExtensions.GetMethodInfo(() => default(CVRInputManager).Update()),
+                postfix: new HarmonyMethod(AccessTools.Method(typeof(ActionMenuMod), nameof(OnUpdateInput))));
 
             // close action menu when main menu opens
             HarmonyInstance.Patch(
@@ -709,12 +698,8 @@ namespace ActionMenu
             }
             MelonCoroutines.Start(WaitCohtmlSpawned());
 
-        }
-
-        private static bool OnUpdateMovementSystem(ABI_RC.Core.Player.CVR_MovementSystem __instance)
-        {
-            if (!MetaPort.Instance.isUsingVr) return true;
-            return cohtmlView?.enabled != true; // TODO: animation still run, prevent emotes
+            // camera render hook to update actionmenu position at end of frame
+            Camera.onPreRender += OnRender;
         }
 
         private static void OnMainMenuToggle(ViewManager __instance, bool show)
@@ -729,6 +714,7 @@ namespace ActionMenu
             var view = cohtmlView.View;
             logger.Msg($"MenuManagerRegisterEvents called {view}");
             view.RegisterForEvent("ActionMenuReady", new Action(OnActionMenuReady));
+            view.RegisterForEvent("CenterJoystick", new Action(OnCenterJoystick));
             view.BindCall("CVRAppCallSystemCall", new Action<string, string, string, string, string>(menuManager.HandleSystemCall));
             view.BindCall("CVRAppCallSaveSetting", new Action<string, string>(MetaPort.Instance.settings.SetSetting));
             view.BindCall("SetMelonPreference", new Action<string, string>(OnSetMelonPreference));
@@ -795,6 +781,9 @@ namespace ActionMenu
             v.enabled = true;
             go.SetActive(true);
             UpdatePositionToAnchor();
+
+            InputManager.actionMenuButton = SteamVR_Actions.alphaBlendInteractive_CustomActionBool1;
+            InputManager.oneHandedControls = useOneHandedControls.Value;
         }
 
         private static void OnCVRCameraToggle(CVRCamController __instance)
@@ -876,36 +865,18 @@ namespace ActionMenu
             cohtmlView.View.TriggerEvent<bool>("ToggleActionMenu", show);
             cohtmlView.enabled = show; // TODO: doesn this reload cohtml each time? careful
             menuAnimator.SetBool("Open", show);
+        }
 
-            var vr = !menuManager._desktopMouseMode || MetaPort.Instance.isUsingVr;
-            var moveSys = PlayerSetup.Instance._movementSystem;
-
-            if (show && menuCollider?.enabled == true)
-                UpdatePositionToAnchor();
-
-            if (!vr)
+        public static void OnUpdateInput(ref Vector3 ___movementVector, ref Vector2 ___lookVector, ref float ___interactLeftValue, ref float ___interactRightValue)
+        {
+            if (!MetaPort.Instance.isUsingVr)
             {
-                moveSys.disableCameraControl = show;
-                CVRInputManager.Instance.inputEnabled = !show;
-                RootLogic.Instance.ToggleMouse(show);
+                InputManager.HandleDesktopInput(ref ___lookVector, ref ___interactRightValue);
             }
-        }
-
-        private static void OnUpdateInputSteamVR(InputModuleSteamVR __instance)
-        {
-            if (__instance.vrMenuButton == null) return; // cvr calls this even in desktop, doh
-
-            instance.OnUpdateInput(
-                __instance.vrMenuButton.GetStateDown(SteamVR_Input_Sources.LeftHand),
-                __instance.vrMenuButton.GetStateUp(SteamVR_Input_Sources.LeftHand));
-            // TODO: add support for right hand too
-        }
-
-        private static void OnUpdateInputDesktop(InputModuleMouseKeyboard __instance)
-        {
-            instance.OnUpdateInput(
-                Input.GetKeyDown(KeyCode.Tab),
-                Input.GetKeyUp(KeyCode.Tab));
+            else
+            {
+                InputManager.HandleVRInput(ref ___movementVector, ref ___lookVector, ref ___interactLeftValue, ref ___interactRightValue);
+            }
         }
 
         private static float qmButtonStart = -1;
@@ -919,7 +890,7 @@ namespace ActionMenu
             if (quickMenuLongPress.Value) menuManager.ToggleQuickMenu(show);
             else ToggleMenu(show);
         }
-        private void OnUpdateInput(bool buttonDown, bool buttonUp)
+        private void OnUpdateDesktopInput(bool buttonDown, bool buttonUp)
         {
             if (cohtmlView == null || menuManager == null) return; // not yet ready
 
@@ -966,37 +937,11 @@ namespace ActionMenu
 
             if (cohtmlView?.enabled != true || cohtmlView?.View == null) return;
 
-            var joystick = Vector2.zero;
-            var trigger = 0f;
-            if (menuManager._desktopMouseMode && !MetaPort.Instance.isUsingVr) // Desktop mode
-            {
-                if (menuManager._camera == null)
-                    menuManager._camera = PlayerSetup.Instance.desktopCamera.GetComponent<Camera>();
-
-                var halfScreen = 0.5f * new Vector2(Screen.width, Screen.height);
-                var mousePos = ((Vector2)Input.mousePosition - halfScreen) / canvasSize;
-                joystick = Vector2.ClampMagnitude(3f * mousePos, 1f);
-
-                trigger = Input.GetMouseButtonDown(0) ? 1 : 0; // do we need button up anyway?
-                UpdatePositionToDesktopAnchor();
-            }
-            else
-            {
-                if (menuCollider.enabled)
-                {
-                    UpdatePositionToVrAnchor();
-                }
-
-                var movVect = menuManager._inputManager.movementVector;
-                joystick = new Vector2(movVect.x, movVect.z); // y is 0 and irrelevant
-                trigger = menuManager._inputManager.interactLeftValue; // TODO: auto detect side
-            }
-
             if (cohtmlReadyState < 2) return;
             var view = cohtmlView.View;
             var data = new InputData {
-                joystick = joystick,
-                trigger = trigger,
+                joystick = InputManager.inputJoystick,
+                trigger = InputManager.inputTrigger,
             };
             view.TriggerEvent<string>("InputData", JsonUtility.ToJson(data));
         }
@@ -1012,12 +957,16 @@ namespace ActionMenu
         private void UpdatePositionToDesktopAnchor()
         {
             if (cohtmlReadyState < 1) return;
+
+            // idea: reposition mode where joystick value adds to menuPositionOffset each frame, using screen ratio to normalize movement
+            // or just use absolute mousepos specifically for this
+
             Transform rotationPivot = PlayerSetup.Instance._movementSystem.rotationPivot;
             var offset = 0.75f * (menuPositionOffset.Value - 0.5f * Vector2.one); // first value can be tweaked
+            float ratio = (float)Screen.width / (float)Screen.height; // does not work without cast
             menuTransform.rotation = rotationPivot.rotation;
             menuTransform.position = rotationPivot.position
-                // y is inverted
-                + rotationPivot.rotation * new Vector3(offset.x, -offset.y, 1);
+                + rotationPivot.rotation * new Vector3(ratio * offset.x, offset.y, 1);
         }
 
         private void UpdatePositionToVrAnchor()
@@ -1027,7 +976,7 @@ namespace ActionMenu
             var anch = menuManager._leftVrAnchor.transform;
             var offset = 0.75f * (menuPositionOffset.Value - 0.5f * Vector2.one); // first value can be tweaked
             menuTransform.rotation = anch.rotation;
-            menuTransform.position = anch.position + anch.rotation * new Vector3(offset.x, -offset.y, 0);
+            menuTransform.position = anch.position + anch.rotation * new Vector3(offset.x, offset.y, 0);
         }
 
         private Menus? melonPrefsMenus;
@@ -1213,6 +1162,11 @@ namespace ActionMenu
             }
         }
 
+        private void OnCenterJoystick()
+        {
+            InputManager.inputJoystick = Vector2.zero;
+        }
+
         internal struct MenuSettings
         {
             public bool in_vr;
@@ -1239,6 +1193,8 @@ namespace ActionMenu
             cohtmlView.View.Reload();
             MelonCoroutines.Start(DelayedRestart(cohtmlView.enabled)); // yes it's a ugly hack but it works, right?
             ToggleMenu(true);
+            InputManager.inputJoystick = Vector2.zero;
+            InputManager.inputTrigger = 0f;
         }
 
         private System.Collections.IEnumerator DelayedRestart(bool wasEnabled)
@@ -1369,7 +1325,10 @@ namespace ActionMenu
                 if (shift) ConfigReload();
                 else FullReload();
             }
+        }
 
+        private void OnRender(Camera cam)
+        {
             if (menuTransform != null)
                 UpdatePositionToAnchor();
         }
@@ -1431,6 +1390,77 @@ namespace ActionMenu
         internal class OurLib : Lib
         {
             override protected void RegisterOnLoaded() { } // we don't need it ourself
+        }
+
+        internal class InputManager
+        {
+            public static SteamVR_Action_Boolean? actionMenuButton;
+
+            public static SteamVR_Input_Sources CurrentHand;
+
+            public static Vector2 inputJoystick;
+            public static float inputTrigger;
+
+            //allows opposite hand to control joystick input if enabled, otherwise disable input
+            public static bool oneHandedControls;
+
+            private static Vector2 leftStickVector;
+            private static Vector2 rightStickVector;
+            private static SteamVR_Action_Vector2? vrMovementAction;
+            private static SteamVR_Action_Vector2? vrLookAction;
+
+            internal static void HandleDesktopInput(ref Vector2 ___lookVector, ref float ___interactRightValue)
+            {
+
+                instance.OnUpdateDesktopInput(
+                    Input.GetKeyDown(KeyCode.Tab),
+                    Input.GetKeyUp(KeyCode.Tab));
+
+                if (cohtmlView?.enabled != true) return;
+
+                //kindof works with gamepad now, but joystick doesn't snap back to center
+                inputJoystick += ___lookVector / 10;
+                inputJoystick = Vector2.ClampMagnitude(inputJoystick, 1f);
+                ___lookVector = Vector2.zero;
+                inputTrigger = ___interactRightValue;
+            }
+
+            internal static void HandleVRInput(ref Vector3 ___movementVector, ref Vector2 ___lookVector, ref float ___interactLeftValue, ref float ___interactRightValue)
+            {
+
+                bool amOpen = cohtmlView?.enabled == true;
+                bool left = actionMenuButton.GetStateUp(SteamVR_Input_Sources.LeftHand);
+                bool right = actionMenuButton.GetStateUp(SteamVR_Input_Sources.RightHand);
+
+                if (left) { CurrentHand = SteamVR_Input_Sources.LeftHand; instance.ToggleMenu(!amOpen); }
+                if (right) { CurrentHand = SteamVR_Input_Sources.RightHand; instance.ToggleMenu(!amOpen); }
+
+                if (amOpen != true) return;
+
+                // get our own joystick input for reliability and simplicity (Valve.VR/SteamVRActions)
+                vrMovementAction = SteamVR_Actions.alphaBlendInteractive_WalkAction;
+                vrLookAction = SteamVR_Actions.alphaBlendInteractive_ControllerRotation;
+                leftStickVector = new Vector2(CVRTools.AxisDeadZone(vrMovementAction.GetAxis(SteamVR_Input_Sources.Any).x, (float)MetaPort.Instance.settings.GetSettingInt("ControlDeadZoneLeft") / 100f, true), CVRTools.AxisDeadZone(vrMovementAction.GetAxis(SteamVR_Input_Sources.Any).y, (float)MetaPort.Instance.settings.GetSettingInt("ControlDeadZoneLeft") / 100f, true));
+                rightStickVector = new Vector2(CVRTools.AxisDeadZone(vrLookAction.GetAxis(SteamVR_Input_Sources.Any).x, (float)MetaPort.Instance.settings.GetSettingInt("ControlDeadZoneRight") / 100f, true), CVRTools.AxisDeadZone(vrLookAction.GetAxis(SteamVR_Input_Sources.Any).y, (float)MetaPort.Instance.settings.GetSettingInt("ControlDeadZoneRight") / 100f, true));
+
+                switch (CurrentHand)
+                {
+                    case SteamVR_Input_Sources.LeftHand:
+                        inputJoystick = leftStickVector;
+                        //lookvector is already handled by right stick
+                        ___movementVector = oneHandedControls ? new Vector3(rightStickVector.x * Math.Abs(rightStickVector.y) * 0.5f, 0, rightStickVector.y) : Vector3.zero;
+                        inputTrigger = ___interactLeftValue;
+                        return;
+                    case SteamVR_Input_Sources.RightHand:
+                        inputJoystick = rightStickVector;
+                        //handling lookvector with leftstick is special as we need to make sure to respect user turnspeed, otherwise we are a bayblade
+                        ___lookVector = oneHandedControls ? leftStickVector * (float)MetaPort.Instance.settings.GetSettingInt("ControlTurnSpeed") / 100f : Vector3.zero;
+                        ___movementVector = oneHandedControls ? new Vector3(leftStickVector.x * Math.Abs(leftStickVector.y) * 0.5f, 0, leftStickVector.y) : ___movementVector;
+                        inputTrigger = ___interactRightValue;
+                        return;
+                    default: break;
+                }
+            }
         }
     }
 }
