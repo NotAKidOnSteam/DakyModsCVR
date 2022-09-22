@@ -650,7 +650,7 @@ const widget_radial = (function () {
 
 			widget_radial_set(angle);
 
-			const value = angle / pi2 + 0.001;
+			const value = angle / pi2;
 			set_value(value); // output between 0 and 1
 			$value.innerHTML = value_label(value);
 		}
