@@ -19,6 +19,8 @@ This fork will most likely only include changes targeted towards their Action Me
 
 * hooked main camera prerender() to update menu anchor position to prevent tearing or artifacts during fast movements
 
+* multiplied base scale & canvas size by 1.5x to give the menu more room to render text
+
 ### index.js
 * radial widget now can reach 100%
 
@@ -30,6 +32,13 @@ This fork will most likely only include changes targeted towards their Action Me
 
 * joystick2d triangles size are set on start/widget open
 
+### index.css
+* center objects to new canvas size
+
+### actionmenu.json
+* reorganized menu
+
+* placed common functions into Shortcuts menu to match Main Menu (also ocd)
 
 # License
 With the following exceptions, all mods here are provided under the terms of [GNU GPLv3 license](LICENSE)
