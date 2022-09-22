@@ -289,9 +289,9 @@ namespace ActionMenu
         public static readonly char hierarchySeparator = '/'; // mostly for ReifyHierarchyInNames (avatar menus)
         public static readonly string couiPath = @"ChilloutVR_Data\StreamingAssets\Cohtml\UIResources\ActionMenu";
         public static readonly string couiUrl = "coui://UIResources/ActionMenu";
-        public static readonly Vector2Int canvasSize = new Vector2Int(500, 500);
-        public static readonly float menuBaseSizeDesktop = 1f;
-        public static readonly float menuBaseSizeVr = 0.3f;
+        public static readonly Vector2Int canvasSize = new Vector2Int(750, 750);
+        public static readonly float menuBaseSizeDesktop = 1.5f;
+        public static readonly float menuBaseSizeVr = 0.45f;
         public static readonly string[] couiFiles = new string[]
         {
             "index.html", "index.js", "index.css", "actionmenu.json", "Montserrat-Regular.ttf",
