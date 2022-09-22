@@ -35,5 +35,10 @@ This fork will most likely only include changes targeted towards their Action Me
 ### index.css
 * center objects to new canvas size
 
+### actionmenu.json
+* reorganized menu
+
+* placed common functions into Shortcuts menu to match Main Menu (also ocd)
+
 # License
 With the following exceptions, all mods here are provided under the terms of [GNU GPLv3 license](LICENSE)
