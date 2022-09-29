@@ -1,7 +1,7 @@
 const totalwidth = 500; // full width of actionmenu in pixels
 const mid = 250; // half width in screen px
 const maxdist = 0.15; // 'inner' joystick zone, normalized
-const deadzone = 0.8; // normalized
+const deadzone = 0.5; // normalized
 const pi = Math.PI;
 const pi2 = 2 * Math.PI;
 const clamp = (min, max, v) => Math.min(max, Math.max(min, v));
@@ -54,13 +54,6 @@ function handle_direction(x, y) { // values between -1 and +1
 			return;
 	}
 
-	if (wait_joystick_notcenter) {
-		if (!is_in_deadzone)
-			wait_joystick_notcenter = false;
-		else
-			return;
-	}
-
 	const f = active_widget?.handle_direction
 		? active_widget.handle_direction // widget has taken over
 		: handle_direction_main;
@@ -108,8 +101,8 @@ function handle_direction_main(x, y, dist) { // x,y from -1 to +1
 		selected_sector = null;
 	}
 
-	$joystick.style.left = 100*(0.5 + maxdist * x) + '%';
-	$joystick.style.top  = 100*(0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
+	$joystick.style.left = 100 * (0.5 + maxdist * x) + '%';
+	$joystick.style.top = 100 * (0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
 
 	if ($item && old_selected_sector != selected_sector) {
 		Array.prototype.forEach.call($item.childNodes, $el => $el.classList.remove('hover'));
@@ -211,7 +204,7 @@ function handle_click_main() {
 				case 'joystick_2d':
 				case 'input_vector_2d': {
 					control_type_2d(item, action,
-						(x, y) => engine.call("SetMelonPreference", action.parameter, `${x},${1 - y}`));
+						(x, y) => engine.call("SetMelonPreference", action.parameter, `${x},${y}`));
 					break;
 				}
 
@@ -252,7 +245,7 @@ function handle_click_main() {
 				case 'joystick_2d':
 				case 'input_vector_2d': {
 					control_type_2d(item, action,
-						(x, y) => engine.call("ItemCallback_float_float", action.parameter, x, 1 - y));
+						(x, y) => engine.call("ItemCallback_float_float", action.parameter, x, y));
 					break;
 				}
 
@@ -289,7 +282,7 @@ function handle_click_main() {
 				case 'input_vector_2d': {
 					control_type_2d(item, action, (denormalized_x, denormalized_y) => {
 						appcall("AppChangeAnimatorParam", action.parameter + '-x', denormalized_x);
-						appcall("AppChangeAnimatorParam", action.parameter + '-y', 1 - denormalized_y);
+						appcall("AppChangeAnimatorParam", action.parameter + '-y', denormalized_y);
 					});
 					break;
 				}
@@ -655,8 +648,9 @@ const widget_radial = (function () {
 			$value.innerHTML = value_label(value);
 		}
 		// else: deadzone = no update
+
 		$indicator.style.left = 100 * (0.5 + maxdist * x) + '%';
-		$indicator.style.top = 100 * (0.5 + maxdist * y) + '%';
+		$indicator.style.top = 100 * (0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
 	}
 
 	const widget_radial_set = (angle) => {
@@ -664,7 +658,7 @@ const widget_radial = (function () {
 		$arc.style.clipPath = `polygon(${clip_path})`;
 	}
 
-	const value_label = value => Math.ceil(value * 100) + "%";
+	const value_label = value => Math.round(value * 100) + "%";
 
 	const start = (item, start_value, set_value) => { // takes normalized value (0 to 1)
 		$w.style.display = 'block';
@@ -708,12 +702,6 @@ const widget_j2d = (function () {
 
 		values_to_joystick(x, y);
 
-		set_value(0.5 * (1 + x), 0.5 * (1 + y)); // convert range -1,+1 to 0,1
-	}
-
-	const values_to_joystick = (x, y) => { // expecting values -1,+1
-		$joystick.style.left = 100 * (0.5 + maxdist * x) + '%';
-		$joystick.style.top = 100 * (0.5 + maxdist * y) + '%';
 		const triangles = $triangles.childNodes.length;
 		Array.prototype.forEach.call($triangles.childNodes, ($t, i) => {
 			const angle = i * pi2 / triangles;
@@ -730,8 +718,8 @@ const widget_j2d = (function () {
 	}
 
 	const values_to_joystick = (x, y) => { // expecting values -1,+1
-		$joystick.style.left = 100*(0.5 + maxdist * x) + '%';
-		$joystick.style.top  = 100*(0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
+		$joystick.style.left = 100 * (0.5 + maxdist * x) + '%';
+		$joystick.style.top = 100 * (0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
 	};
 
 	const handle_click_joystick_2d = () => {
