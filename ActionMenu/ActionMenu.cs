@@ -19,7 +19,7 @@ using SettingsType = ABI.CCK.Scripts.CVRAdvancedSettingsEntry.SettingsType;
 using BindFlags = System.Reflection.BindingFlags;
 
 [assembly:MelonGame("Alpha Blend Interactive", "ChilloutVR")]
-[assembly:MelonInfo(typeof(ActionMenu.ActionMenuMod), "ActionMenu", "1.0.0", "daky", "https://github.com/dakyneko/DakyModsCVR")]
+[assembly:MelonInfo(typeof(ActionMenu.ActionMenuMod), "Action Menu", "1.0.2", "daky", "https://github.com/dakyneko/DakyModsCVR")]
 
 namespace ActionMenu
 {
@@ -27,7 +27,9 @@ namespace ActionMenu
     using MenuBuilder = Func<List<MenuItem>>;
     public class ActionMenuMod : MelonMod
     {
-        // Public library for all mods to use, you can extend this
+        /// <summary>
+        /// Public library for all mods to use, you can extend this
+        /// </summary>
         public class Lib
         {
             private ActionMenuMod instance;
@@ -66,7 +68,6 @@ namespace ActionMenu
             // Create many menus yourself for your mod. Your menus will have automatically the prefixNs prefix.
             virtual public Menus BuildModMenu()
             {
-                var xs = modMenuItems();
                 return new()
                 {
                     // the main menu of the mod
@@ -75,24 +76,31 @@ namespace ActionMenu
                 };
             }
 
-            // Or even finer control, total control but it comes with responsability: pick unique names for your menus!
-            // Override this to manipulate/add menus after all other menus are built. Usually not required for simple mod menus.
+            /// <summary>
+            /// Or even finer control, total control but it comes with responsability: pick unique names for your menus!
+            /// Override this to manipulate/add menus after all other menus are built. Usually not required for simple mod menus.
+            /// </summary>
+            /// <param name="menus"></param>
             virtual protected void OnGlobalMenuLoaded(Menus menus)
             {
-                // the default behavior below makes modders' life easier and prevent collision between mods
+                // the default behavior below makes modders' life easier and prevents collision between mods
                 var m = BuildModMenu();
                 if (m.Keys.SequenceEqual(new string[] { entry }) && m.GetWithDefault(entry).Count == 0)
                     return; // if empty don't create anything
 
                 // add all mod menus and take care of the prefixNs prefix
+                var menuPrefix = ModMenuPath();
                 foreach (var x in m) {
                     var items = x.Value.Select(item =>
                     {
-                        if (item.action.type == "menu")
+                        // when refer to other menu, add prefix but only if it's missing
+                        if (item.action.type == "menu" && !item.action.menu.StartsWith(menuPrefix))
                             item.action.menu = ModMenuPath(item.action.menu);
                         return item;
                     });
-                    menus.GetWithDefault(ModMenuPath(x.Key)).AddRange(items);
+                    // we check if prefix is already added by chance, only add if missing
+                    var menuWithPrefix = !x.Key.StartsWith(menuPrefix) ? ModMenuPath(x.Key) : x.Key;
+                    menus.GetWithDefault(menuWithPrefix).AddRange(items);
                 }
                 ModsMainMenu(menus).Add(new MenuItem()
                 {
@@ -104,16 +112,30 @@ namespace ActionMenu
 
             public static List<MenuItem> ModsMainMenu(Menus menus) => menus.GetWithDefault(modsMenuName);
 
-            // override this to manipulate avatar menus after they're built
+            /// <summary>
+            /// override this to manipulate avatar menus after they're built
+            /// </summary>
+            /// <param name="avatarGuid"></param>
+            /// <param name="menus"></param>
             virtual protected void OnAvatarMenuLoaded(string avatarGuid, Menus menus)
             {
             }
 
-            // Nice way to edit menus by applying patches. This is to play nice with other mods as well.
+            /// <summary>
+            /// Nice way to edit menus by applying patches. This is to play nice with other mods as well.
+            /// </summary>
+            /// <param name="menus"></param>
+            /// <param name="patch"></param>
             public static void ApplyMenuPatch(Menus menus, MenusPatch patch) => patch.ApplyToMenu(menus);
 
-            // Create an ItemAction when triggered, will call your function
-            // Basically for button/widget item for callback in your mod
+            /// <summary>
+            /// Create an ItemAction when triggered, will call your function
+            /// Basically for button/widget item for callback in your mod
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <param name="exclusiveOption"></param>
+            /// <returns></returns>
             public ItemAction BuildButtonItem(string name, Action callback, bool exclusiveOption = false)
             {
                 var identifier = prefixNs + ".call." + name;
@@ -135,21 +157,43 @@ namespace ActionMenu
                 {
                     type = "callback",
                     parameter = identifier,
-                    control = "toggle",
+                    control = control,
+                    toggle = control == "toggle",
                     duration = duration,
                     value = value,
                     default_value = defaultValue,
                 };
             }
 
-            // Creates a button with two states: enabled and disabled.
+            /// <summary>
+            /// Creates a button with two states: enabled and disabled.
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <returns></returns>
             public ItemAction BuildToggleItem(string name, Action<bool> callback)
                 => BuildBoolItem(name, callback, "toggle", value: true, defaultValue: false);
-            // Creates a button that temporarily switch its value, then back to default_value
+            /// <summary>
+            /// Creates a button that temporarily switch its value, then back to default_value
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <param name="duration"></param>
+            /// <param name="value"></param>
+            /// <param name="defaultValue"></param>
+            /// <returns></returns>
             public ItemAction BuildImpulseItem(string name, Action<bool> callback, float duration = 1f, object? value = null, object? defaultValue = null)
                 => BuildBoolItem(name, callback, "impulse", value: value, defaultValue: defaultValue, duration: duration);
 
-            // Creates a radial widget for picking values between a min and max.
+            /// <summary>
+            /// Creates a radial widget for picking values between a min and max.
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <param name="minValue"></param>
+            /// <param name="maxValue"></param>
+            /// <param name="defaultValue"></param>
+            /// <returns></returns>
             public ItemAction BuildRadialItem(string name, Action<float> callback,
                 float? minValue = null, float? maxValue = null, float? defaultValue = null)
             {
@@ -184,7 +228,18 @@ namespace ActionMenu
                 };
             }
 
-            // Creates a 2D widget for picking two values simultaneously setting absolute coordinates, between min and max values.
+            /// <summary>
+            /// Creates a 2D widget for picking two values simultaneously setting absolute coordinates, between min and max values.
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <param name="minValueX"></param>
+            /// <param name="maxValueX"></param>
+            /// <param name="defaultValueX"></param>
+            /// <param name="minValueY"></param>
+            /// <param name="maxValueY"></param>
+            /// <param name="defaultValueY"></param>
+            /// <returns></returns>
             public ItemAction BuildJoystick2D(string name, Action<float, float> callback,
                 float? minValueX = null, float? maxValueX = null, float? defaultValueX = null,
                 float? minValueY = null, float? maxValueY = null, float? defaultValueY = null)
@@ -192,7 +247,18 @@ namespace ActionMenu
                         minValueX: minValueX, maxValueX: maxValueX, defaultValueX: defaultValueX,
                         minValueY: minValueY, maxValueY: maxValueY, defaultValueY: defaultValueY
                     );
-            // Creates a 2D widget for picking two values simultaneously moving in relative coordinates, between min and max values.
+            /// <summary>
+            /// Creates a 2D widget for picking two values simultaneously moving in relative coordinates, between min and max values.
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="callback"></param>
+            /// <param name="minValueX"></param>
+            /// <param name="maxValueX"></param>
+            /// <param name="defaultValueX"></param>
+            /// <param name="minValueY"></param>
+            /// <param name="maxValueY"></param>
+            /// <param name="defaultValueY"></param>
+            /// <returns></returns>
             public ItemAction BuildInputVector2D(string name, Action<float, float> callback,
                 float? minValueX = null, float? maxValueX = null, float? defaultValueX = null,
                 float? minValueY = null, float? maxValueY = null, float? defaultValueY = null)
@@ -201,8 +267,13 @@ namespace ActionMenu
                         minValueY: minValueY, maxValueY: maxValueY, defaultValueY: defaultValueY
                     );
 
-            // Create an ItemAction when triggered, will call you back so you can build your own menu dynamically
-            // Basically building dynamic menus from a mod
+            /// <summary>
+            /// Create an ItemAction when triggered, will call you back so you can build your own menu dynamically
+            /// Basically building dynamic menus from a mod
+            /// </summary>
+            /// <param name="name"></param>
+            /// <param name="menuBuilder"></param>
+            /// <returns></returns>
             public ItemAction BuildCallbackMenu(string name, MenuBuilder menuBuilder)
             {
                 var identifier = prefixNs + "." + name;
@@ -214,9 +285,13 @@ namespace ActionMenu
                 };
             }
 
-            // if you want to expose your MelonPreference into a menu, build them with this.
-            // beware that it's still rudimentary: toggles are fine but floats are between 0 and 1, that's all
-            // to refer it, look below at the path, it has prefix, example: YourNameMod/settings
+            /// <summary>
+            /// if you want to expose your MelonPreference into a menu, build them with this.
+            /// beware that it's still rudimentary: toggles are fine but floats are between 0 and 1, that's all
+            /// to refer it, look below at the path, it has prefix, example: YourNameMod/settings
+            /// </summary>
+            /// <param name="melonPrefs"></param>
+            /// <returns></returns>
             public Menus BuildMelonPrefsMenus(List<MelonPreferences_Entry> melonPrefs)
             {
                 var m = new Menus();
@@ -367,6 +442,10 @@ namespace ActionMenu
 
             return m;
         }
+
+        // Allows to update the state of any items having those item action
+        // especially useful for toggle where the state is changed externally, use this.
+        public static void UpdateItemState(ItemAction action) => instance.SendItemUpdate(action);
 
         public static Menus AvatarAdvancedSettingsToMenus(List<CVRAdvancedSettingsEntry> advSettings, Animator animator, string menuPrefix)
         {
@@ -636,9 +715,6 @@ namespace ActionMenu
                 var baseScale = MetaPort.Instance.isUsingVr ? menuBaseSizeVr : menuBaseSizeDesktop;
                 menuTransform.localScale = baseScale * v * Vector3.one;
             };
-            useOneHandedControls.OnValueChanged += (_, v) => {
-                InputManager.oneHandedControls = v;
-            };
 
             // handle our own input
             HarmonyInstance.Patch(
@@ -786,68 +862,62 @@ namespace ActionMenu
             InputManager.oneHandedControls = useOneHandedControls.Value;
         }
 
+        private void SendItemUpdate(ItemAction action)
+        {
+            var u = new MenuItemValueUpdate() { action = action };
+            cohtmlView?.View?.TriggerEvent<string>("GameValueUpdate", JsonSerialize(u));
+        }
+
         private static void OnCVRCameraToggle(CVRCamController __instance)
         {
             if (cohtmlReadyState < 2) return; // not ready for events
             MelonLogger.Msg($"OnCVRCameraToggle {__instance}");
-            var u = new MenuItemValueUpdate()
+            var action = new ItemAction()
             {
-                action = new ItemAction()
-                {
-                    type = "system call",
-                    event_ = "AppToggleCamera",
-                    value = __instance?.cvrCamera?.activeSelf ?? false
-                },
+                type = "system call",
+                event_ = "AppToggleCamera",
+                value = __instance?.cvrCamera?.activeSelf ?? false
             };
-            cohtmlView.View.TriggerEvent<string>("GameValueUpdate", JsonSerialize(u));
+            instance.SendItemUpdate(action);
         }
 
         private static void OnCVRMicrophoneToggle(bool muted)
         {
             if (cohtmlReadyState < 2) return; // not ready for events
             MelonLogger.Msg($"OnCVRMicrophoneToggle {muted}");
-            var u = new MenuItemValueUpdate()
+            var action = new ItemAction()
             {
-                action = new ItemAction()
-                {
-                    type = "system call",
-                    event_ = "AppToggleMute",
-                    value = !muted,
-                },
+                type = "system call",
+                event_ = "AppToggleMute",
+                value = !muted,
             };
-            cohtmlView.View.TriggerEvent<string>("GameValueUpdate", JsonSerialize(u));
+            instance.SendItemUpdate(action);
         }
 
         private static void OnCVRSeatedToggle(PlayerSetup __instance)
         {
             if (cohtmlReadyState < 2) return; // not ready for events
             MelonLogger.Msg($"OnCVRSeatedToggle {__instance.seatedPlay}");
-            var u = new MenuItemValueUpdate()
+            var action = new ItemAction()
             {
-                action = new ItemAction()
-                {
-                    type = "system call",
-                    event_ = "AppToggleSeatedPlay",
-                    value = __instance.seatedPlay,
-                },
+                type = "system call",
+                event_ = "AppToggleSeatedPlay",
+                value = __instance.seatedPlay,
             };
-            cohtmlView.View.TriggerEvent<string>("GameValueUpdate", JsonSerialize(u));
+            instance.SendItemUpdate(action);
         }
 
         private static void OnCVRFlyToggle(MovementSystem __instance)
         {
             if (cohtmlReadyState < 2) return; // not ready for events
             MelonLogger.Msg($"OnCVRFlyToggle {__instance.flying}");
-            var u = new MenuItemValueUpdate()
+            var action = new ItemAction()
             {
-                action = new ItemAction()
-                {
-                    type = "system call",
-                    event_ = "AppToggleFLightMode",
-                    value = __instance.flying,
-                },
+                type = "system call",
+                event_ = "AppToggleFLightMode",
+                value = __instance.flying,
             };
-            cohtmlView.View.TriggerEvent<string>("GameValueUpdate", JsonSerialize(u));
+            instance.SendItemUpdate(action);
         }
 
         [Serializable]

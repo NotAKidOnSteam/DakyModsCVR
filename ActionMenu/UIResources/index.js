@@ -40,6 +40,7 @@ function center_joystick() {
 	engine.trigger('CenterJoystick');
 }
 
+// convention is bottom-left is (-1,-1) and top-right is (+1,+1)
 function handle_direction(x, y) { // values between -1 and +1
 	if (!quickmenu_active) return;
 
@@ -79,7 +80,7 @@ function refresh_selection_sector(selected_sector) {
 }
 
 function coords_to_angle(x, y, dist) { // x,y from -1 to +1
-	const divisor = dist - y;
+	const divisor = dist + y;
 	const angle = Math.abs(divisor) <= 0.0001 // protection for division by 0
 		? 0.0
 		: 2 * Math.atan(x / divisor) + pi;
@@ -107,8 +108,8 @@ function handle_direction_main(x, y, dist) { // x,y from -1 to +1
 		selected_sector = null;
 	}
 
-	$joystick.style.left = 100 * (0.5 + maxdist * x) + '%';
-	$joystick.style.top = 100 * (0.5 + maxdist * y) + '%';
+	$joystick.style.left = 100*(0.5 + maxdist * x) + '%';
+	$joystick.style.top  = 100*(0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
 
 	if ($item && old_selected_sector != selected_sector) {
 		Array.prototype.forEach.call($item.childNodes, $el => $el.classList.remove('hover'));
@@ -350,7 +351,6 @@ function control_type_2d(item, action, set_values) {
 	const max_value_x = action.max_value_x ?? 1;
 	const delta_x = max_value_x - min_value_x;
 	const start_value_x = ((action.default_value_x ?? 0) - min_value_x) / delta_x;
-	// TODO: we should restore from the previously set value
 
 	const min_value_y = action.min_value_y ?? 0;
 	const max_value_y = action.max_value_y ?? 1;
@@ -416,7 +416,7 @@ document.addEventListener('mousemove', (event) => {
 		y /= scale;
 	}
 
-	handle_direction(x, y);
+	handle_direction(x, -y); // html convention has vertical axis inverted
 });
 
 document.addEventListener('mouseup', (event) => {
@@ -704,9 +704,7 @@ const widget_j2d = (function () {
 	const $triangles = $w.getElementsByClassName("triangles")[0];
 
 	const handle_direction_joystick_2d = (set_value, x, y, dist) => {
-		const angle = y <= -1 // protection for division by 0
-			? pi2 - 0.001
-			: (pi - 2 * Math.atan(x / (y + dist)));
+		const angle = coords_to_angle(x, y, dist);
 
 		values_to_joystick(x, y);
 
@@ -720,13 +718,20 @@ const widget_j2d = (function () {
 		Array.prototype.forEach.call($triangles.childNodes, ($t, i) => {
 			const angle = i * pi2 / triangles;
 			const tx = Math.sin(angle);
-			const ty = Math.cos(angle);
+			const ty = -Math.cos(angle); // html vertical axis is inverted
 			const dot = x * tx + y * ty; // between -1 and +1
 
 			const size = 0.1 * mid + 0.35 * mid * Math.max(0, dot);
 			$t.style.borderLeft = $t.style.borderRight = size + 'px solid transparent';
 			$t.style.borderBottom = size + 'px solid #dac024';
 		});
+
+		set_value(0.5 * (1 + x), 0.5 * (1 + y)); // convert range -1,+1 to 0,1
+	}
+
+	const values_to_joystick = (x, y) => { // expecting values -1,+1
+		$joystick.style.left = 100*(0.5 + maxdist * x) + '%';
+		$joystick.style.top  = 100*(0.5 - maxdist * y) + '%'; // html convention has vertical axis inverted
 	};
 
 	const handle_click_joystick_2d = () => {
@@ -834,7 +839,7 @@ function load_action_menu(_menu, _settings) {
 		gameData = JSON.parse(_content);
 
 		const joyvec = gameData.joystick;
-		handle_direction(joyvec.x, -joyvec.y); // we invert y
+		handle_direction(joyvec.x, joyvec.y);
 
 		const trigger = gameData.trigger > 0.9;
 		if (trigger && !last_trigger)
